@@ -25,7 +25,7 @@ const STALE_NAN: u64 = 0x7ff0000000000002;
 // value for that bucket.
 //  | a b c d e | f g h i | j   k |   m    |
 //  |   e - a   |  i - f  | k - j | <null> |
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(no_guard, immutable, parallel_safe)]
 pub fn prom_delta_transition(
     state: Option<Internal<GapfillDeltaTransition>>,
     lowest_time: TimestampTz,
@@ -62,7 +62,7 @@ pub fn prom_delta_transition(
     }
 }
 
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(no_guard, immutable, parallel_safe)]
 pub fn prom_rate_transition(
     state: Option<Internal<GapfillDeltaTransition>>,
     lowest_time: TimestampTz,
@@ -99,7 +99,7 @@ pub fn prom_rate_transition(
     }
 }
 
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(no_guard, immutable, parallel_safe)]
 pub fn prom_increase_transition(
     state: Option<Internal<GapfillDeltaTransition>>,
     lowest_time: TimestampTz,
@@ -136,7 +136,7 @@ pub fn prom_increase_transition(
     }
 }
 
-#[pg_extern()]
+#[pg_extern(no_guard)]
 pub fn prom_delta_final(
     state: Option<Internal<GapfillDeltaTransition>>,
 ) -> Option<Vec<Option<f64>>> {
@@ -312,7 +312,7 @@ impl GapfillDeltaTransition {
 // thus, the vector selector returns a regular series of values corresponding to all the points in the
 // ts series above.
 // Note that for performance, this aggregate is parallel-izable, combinable, and does not expect ordered inputs.
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(no_guard, immutable, parallel_safe)]
 pub fn vector_selector_transition(
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<Internal<VectorSelector>> {
@@ -359,7 +359,7 @@ pub fn vector_selector_transition(
     }
 }
 
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(no_guard, immutable, parallel_safe)]
 pub fn vector_selector_final(state: Option<Internal<VectorSelector>>) -> Option<Vec<Option<f64>>> {
     state.map(|s| s.to_pg_array())
 }
@@ -367,12 +367,12 @@ pub fn vector_selector_final(state: Option<Internal<VectorSelector>>) -> Option<
 #[allow(non_camel_case_types)]
 type bytea = pg_sys::Datum;
 
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(no_guard, immutable, parallel_safe)]
 pub fn vector_selector_serialize(state: Internal<VectorSelector>) -> bytea {
     crate::do_serialize!(state)
 }
 
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(no_guard, immutable, parallel_safe)]
 pub fn vector_selector_deserialize(
     bytes: bytea,
     _internal: Option<Internal<()>>,
@@ -380,7 +380,7 @@ pub fn vector_selector_deserialize(
     crate::do_deserialize!(bytes, VectorSelector)
 }
 
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(no_guard, immutable, parallel_safe)]
 pub fn vector_selector_combine(
     state1: Option<Internal<VectorSelector>>,
     state2: Option<Internal<VectorSelector>>,
