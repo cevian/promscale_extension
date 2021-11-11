@@ -1276,8 +1276,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "promscale_rs"
-version = "0.1.3"
+name = "promscale"
+version = "0.4.0"
 dependencies = [
  "bincode",
  "pgx",
