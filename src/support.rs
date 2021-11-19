@@ -26,7 +26,6 @@ use std::ptr;
 ///
 /// [support function]: https://www.postgresql.org/docs/current/xfunc-optimization.html
 #[pg_extern(immutable, strict)]
-#[search_path(@extschema@)]
 pub unsafe fn make_call_subquery_support(input: Internal) -> Internal {
     let input: *mut pg_sys::Node = input.unwrap().unwrap() as _;
     if !pgx::is_a(input, pg_sys::NodeTag_T_SupportRequestSimplify) {

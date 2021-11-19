@@ -66,6 +66,15 @@ pub fn prom_increase_transition_inner(
     }
 }
 
+/// Backwards compatibility
+#[pg_guard]
+#[no_mangle]
+unsafe extern "C" fn gapfill_increase_transition(
+    fcinfo: pg_sys::FunctionCallInfo,
+) -> pg_sys::Datum {
+    prom_increase_transition_wrapper(fcinfo)
+}
+
 // implementation of prometheus increase function
 // for proper behavior the input must be ORDER BY sample_time
 extension_sql!(
@@ -109,7 +118,8 @@ mod tests {
                 ('2000-01-02T15:40:00+00:00',80),
                 ('2000-01-02T15:45:00+00:00',90),
                 ('2000-01-02T15:50:00+00:00',100);
-        "#);
+        "#,
+        );
 
         let result = Spi::get_one::<Vec<f64>>(
             "SELECT prom_increase('2000-01-02T15:00:00+00:00'::TIMESTAMPTZ, '2000-01-02T15:50:00+00:00'::TIMESTAMPTZ, 50 * 60 * 1000, 50 * 60 * 1000, t, v order by t) FROM gfi_test_table"
@@ -134,7 +144,8 @@ mod tests {
                 ('2000-01-02T15:40:00+00:00',20),
                 ('2000-01-02T15:45:00+00:00',30),
                 ('2000-01-02T15:50:00+00:00',40);
-        "#);
+        "#,
+        );
 
         let result = Spi::get_one::<Vec<f64>>(
             "SELECT prom_increase('2000-01-02T15:00:00+00:00'::TIMESTAMPTZ, '2000-01-02T15:50:00+00:00'::TIMESTAMPTZ, 50 * 60 * 1000, 50 * 60 * 1000, t, v order by t) FROM gfi_test_table;"
@@ -155,7 +166,8 @@ mod tests {
                 ('2000-01-02T15:20:00+00:00',2),
                 ('2000-01-02T15:25:00+00:00',3),
                 ('2000-01-02T15:30:00+00:00',4);
-        "#);
+        "#,
+        );
         let result =
             Spi::get_one::<Vec<f64>>(
             "SELECT prom_increase('2000-01-02T15:00:00+00:00'::TIMESTAMPTZ, '2000-01-02T15:30:00+00:00'::TIMESTAMPTZ, 30 * 60 * 1000, 30 * 60 * 1000, t, v order by t) FROM gfi_test_table;"

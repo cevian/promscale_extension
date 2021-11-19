@@ -72,6 +72,13 @@ pub fn prom_delta_transition_inner(
     }
 }
 
+/// Backwards compatibility
+#[pg_guard]
+#[no_mangle]
+unsafe extern "C" fn gapfill_delta_transition(fcinfo: pg_sys::FunctionCallInfo) -> pg_sys::Datum {
+    prom_delta_transition_wrapper(fcinfo)
+}
+
 // implementation of prometheus delta function
 // for proper behavior the input must be ORDER BY sample_time
 extension_sql!(

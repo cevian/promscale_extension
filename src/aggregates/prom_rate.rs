@@ -30,7 +30,6 @@ pub fn prom_rate_transition(
     )
     .internal()
 }
-
 pub fn prom_rate_transition_inner(
     state: Option<Inner<GapfillDeltaTransition>>,
     lowest_time: pg_sys::TimestampTz,
@@ -68,6 +67,13 @@ pub fn prom_rate_transition_inner(
             Some(state)
         })
     }
+}
+
+/// Backwards compatibility
+#[pg_guard]
+#[no_mangle]
+unsafe extern "C" fn gapfill_rate_transition(fcinfo: pg_sys::FunctionCallInfo) -> pg_sys::Datum {
+    prom_rate_transition_wrapper(fcinfo)
 }
 
 // implementation of prometheus rate function

@@ -1,7 +1,7 @@
-use std::collections::VecDeque;
-use pgx::*;
 use pgx::Internal;
+use pgx::*;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 
 use crate::palloc::{Inner, InternalAsValue};
 
@@ -25,6 +25,12 @@ pub fn prom_delta_final_inner(
     state: Option<Inner<GapfillDeltaTransition>>,
 ) -> Option<Vec<Option<f64>>> {
     state.map(|mut s| s.to_vec())
+}
+
+/// Backwards compatibility
+#[no_mangle]
+unsafe extern "C" fn gapfill_delta_final(fcinfo: pg_sys::FunctionCallInfo) -> pg_sys::Datum {
+    prom_delta_final_wrapper(fcinfo)
 }
 
 #[derive(Serialize, Deserialize, PostgresType, Debug)]
