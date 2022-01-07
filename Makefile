@@ -18,6 +18,10 @@ clean:
 package:
 	cargo pgx package --pg_config ${PG_CONFIG}
 
+.PHONY: test
+package:
+	cargo pgx test --pg_config ${PG_CONFIG}
+
 .PHONY: install
 install:
 	cargo pgx install --pg_config ${PG_CONFIG}

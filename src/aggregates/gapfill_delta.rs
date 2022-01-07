@@ -3,6 +3,7 @@ use crate::palloc::{Inner, InternalAsValue};
 use pgx::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use pgx::sql_entity_graph::aggregate::{FinalizeModify, ParallelOption};
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn prom_extrapolate_final(state: Internal) -> Option<Vec<Option<f64>>> {
