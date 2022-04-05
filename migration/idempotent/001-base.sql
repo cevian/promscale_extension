@@ -3110,3 +3110,85 @@ END;
 $$
 LANGUAGE PLPGSQL;
 GRANT EXECUTE ON FUNCTION _prom_catalog.insert_metric_row(NAME, TIMESTAMPTZ[], DOUBLE PRECISION[], BIGINT[]) TO prom_writer;
+
+CREATE OR REPLACE FUNCTION _prom_catalog.has_permission_on_table(_table regclass)
+RETURNS boolean
+AS $func$
+DECLARE
+    _rec record;
+    _rec2 record;
+    _found boolean;
+BEGIN
+    -- ensure it's a table and not some other kind of object
+    SELECT
+        k.oid,
+        k.relname,
+        k.relnamespace,
+        n.nspname
+    INTO _rec
+    FROM pg_catalog.pg_class k
+    INNER JOIN pg_catalog.pg_namespace n on (k.relnamespace = n.oid)
+    WHERE k.oid = _table::oid
+    AND k.relkind in ('r', 'p')
+    ;
+    IF NOT FOUND THEN
+        RAISE WARNING '% is not a table', _table;
+        RETURN false;
+    END IF;
+
+    -- is the table a chunk? if so, check the chunk's hypertable instead
+    IF _prom_catalog.is_timescaledb_installed() THEN
+        SELECT
+            k.oid,
+            k.relname,
+            k.relnamespace,
+            n.nspname
+        INTO _rec2
+        FROM _timescaledb_catalog.chunk c
+        INNER JOIN _timescaledb_catalog.hypertable h
+        ON (c.hypertable_id = h.id
+            AND c.schema_name = _rec.nspname
+            AND c.table_name = _rec.relname)
+        INNER JOIN pg_catalog.pg_class k on (k.relname = h.table_name)
+        INNER JOIN pg_catalog.pg_namespace n on (k.relnamespace = n.oid AND h.schema_name = n.nspname)
+        ;
+        IF FOUND THEN
+            _rec = _rec2;
+        END IF;
+    END IF;
+
+    -- is exemplar table?
+    IF 'prom_data_exemplar' = _rec.nspname THEN
+        SELECT count(*) > 0 INTO STRICT _found
+        FROM _prom_catalog.exemplar e
+        WHERE e.table_name = _rec.relname
+        ;
+        IF _found THEN
+            RETURN true;
+        END IF;
+    END IF;
+
+    -- is metric or series table?
+    SELECT count(*) > 0 INTO STRICT _found
+    FROM _prom_catalog.metric m
+    WHERE m.table_name = _rec.relname
+    AND _rec.nspname IN (m.table_schema, 'prom_data_series')
+    ;
+    IF _found THEN
+        RETURN true;
+    END IF;
+
+    -- is a table belonging to the extension
+    SELECT count(*) > 0 INTO STRICT _found
+    FROM pg_catalog.pg_depend d
+    INNER JOIN pg_catalog.pg_extension e ON (d.refobjid = e.oid AND d.objid = _rec.oid)
+    WHERE d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+    AND d.deptype = 'e'
+    AND e.extname = 'promscale'
+    ;
+
+    RETURN _found;
+END;
+$func$
+LANGUAGE plpgsql STABLE;
+GRANT EXECUTE ON FUNCTION _prom_catalog.has_permission_on_table(regclass) TO prom_reader;
