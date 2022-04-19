@@ -521,9 +521,12 @@ BEGIN
     --the owner of extension objects is whoever is executing this script
     obj_owner := quote_ident(current_user);
 
-    --the owner of the extension is either current user or @extowner@ for trusted extensions
+    --the owner of the extension is either session user or @extowner@ for trusted extensions
     IF  current_setting('server_version_num')::INT < 130000 THEN
-      ext_owner := quote_ident(current_user);
+      --use session and not current user to be compatible with pgextwlist
+      --namely, we want to check the user installing the extension, not whoever
+      --is running this script because pgextwlist would make that the bootstrap superuser.
+      ext_owner := quote_ident(session_user);
     ELSE
       ext_owner := '@extowner@'; -- proper quotation is handled by the pg itself
     END IF;
