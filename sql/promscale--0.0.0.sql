@@ -566,8 +566,7 @@ BEGIN
                 dep.objsubid
             from cte
             inner join pg_depend dep ON (cte.classid = dep.refclassid
-                                    AND cte.objid = dep.refobjid
-                                    AND cte.objsubid = dep.refobjsubid)
+                                    AND cte.objid = dep.refobjid)
             where NOT is_cycle
         ),
         with_owner as (
@@ -630,8 +629,7 @@ BEGIN
                 dep.objsubid
             from cte
             inner join pg_depend dep ON (cte.classid = dep.refclassid
-                                    AND cte.objid = dep.refobjid
-                                    AND cte.objsubid = dep.refobjsubid)
+                                    AND cte.objid = dep.refobjid)
             where NOT is_cycle
         ),
         constr as (
@@ -654,7 +652,17 @@ BEGIN
             "CHECK ((VALUE <> '00000000-0000-0000-0000-000000000000'::uuid))",
             "CHECK ((VALUE <> '00000000-0000-0000-0000-000000000000'::uuid))",
             "CHECK ((VALUE <> ''::text))",
-            "CHECK ((jsonb_typeof(VALUE) = 'object'::text))"
+            "CHECK ((jsonb_typeof(VALUE) = 'object'::text))",
+            "CHECK ((is_unique = true))",
+            "CHECK ((id > 0))",
+            "CHECK ((((uuid = '00000000-0000-0000-0000-000000000000'::uuid) OR (NOT is_counter_reset_row)) AND ((uuid <> '00000000-0000-0000-0000-000000000000'::uuid) OR is_counter_reset_row)))",
+            "CHECK ((span_id <> 0))",
+            "CHECK ((linked_span_id <> 0))",
+            "CHECK ((parent_span_id <> 0))",
+            "CHECK ((span_name <> ''::text))",
+            "CHECK ((start_time <= end_time))",
+            "CHECK ((trace_state <> ''::text))",
+            "CHECK ((url <> ''::text))"
         }$$::text[]
         ));
 
@@ -685,8 +693,7 @@ BEGIN
                 dep.objsubid
             from cte
             inner join pg_depend dep ON (cte.classid = dep.refclassid
-                                    AND cte.objid = dep.refobjid
-                                    AND cte.objsubid = dep.refobjsubid)
+                                    AND cte.objid = dep.refobjid)
             where NOT is_cycle
         ),
         trigger as (
@@ -717,7 +724,10 @@ BEGIN
                 false is_cycle,
                 classid,
                 objid,
-                objsubid
+                objsubid,
+                refclassid,
+                refobjid,
+                refobjsubid
             from pg_depend
             where deptype='e' and
                 refclassid='pg_catalog.pg_extension'::regclass and
@@ -729,11 +739,13 @@ BEGIN
                 pg_describe_object(dep.classid, dep.objid, dep.objsubid) = ANY(descr),
                 dep.classid,
                 dep.objid,
-                dep.objsubid
+                dep.objsubid,
+                dep.refclassid,
+                dep.refobjid,
+                dep.refobjsubid
             from cte
             inner join pg_depend dep ON (cte.classid = dep.refclassid
-                                    AND cte.objid = dep.refobjid
-                                    AND cte.objsubid = dep.refobjsubid)
+                                    AND cte.objid = dep.refobjid)
             where NOT is_cycle
         ),
         rewrite as (
@@ -745,11 +757,17 @@ BEGIN
             LEFT JOIN pg_class c ON (r.ev_class = c.oid)
         )
         SELECT array_agg (
-                'rewrite rule ' || pg_describe_object(classid, objid, objsubid) || 'is owned by ' || relowner::text
+                'rewrite rule ' || pg_describe_object(classid, objid, objsubid) || ' is owned by ' || relowner::text
         )
         INTO errors
         FROM rewrite
-        WHERE NOT (relowner = obj_owner_oid and relkind = 'v' and rulename='_RETURN');
+        WHERE NOT ( --things inside the NOT are safe
+            --views owned by us are safe
+            (relowner = obj_owner_oid and relkind = 'v' and rulename='_RETURN')
+            OR
+            --column references are safe (probably in user-defined views)
+            (refclassid = 'pg_class'::regclass AND refobjsubid > 0)
+        );
 
         IF array_length(errors, 1) > 0 THEN
             RAISE EXCEPTION 'could not secure the promscale installation: %', array_to_string(errors, ', ');
@@ -778,12 +796,11 @@ BEGIN
                 dep.objsubid
             from cte
             inner join pg_depend dep ON (cte.classid = dep.refclassid
-                                    AND cte.objid = dep.refobjid
-                                    AND cte.objsubid = dep.refobjsubid)
+                                    AND cte.objid = dep.refobjid)
             where NOT is_cycle
         ),
         attrdef as (
-            SELECT cte.*, upstream_seq_class.relowner
+            SELECT pg_get_expr(adbin, adrelid) expr, cte.*, upstream_seq_class.relowner as seq_owner
             FROM cte
             INNER JOIN pg_attrdef a ON (
                     cte.classid = 'pg_attrdef'::regclass AND
@@ -799,11 +816,27 @@ BEGIN
             )
         )
         SELECT array_agg (
-                'attribute default ' || pg_describe_object(classid, objid, objsubid) || 'is owned by ' || relowner::text
+                'attribute default ' || pg_describe_object(classid, objid, objsubid) || 'is unrecognized'
         )
         INTO errors
         FROM attrdef
-        WHERE relowner != obj_owner_oid;
+        WHERE NOT ( --objects inside the not are known safe
+            --sequeneces owned by the owner are safe
+            (seq_owner is not null and seq_owner = obj_owner_oid)
+            OR
+            --known expressions are good
+            (expr = ANY(
+                    $${
+                    "'prom_data'::name",
+                    "(EXTRACT(epoch FROM (end_time - start_time)) * 1000.0)",
+                    "0",
+                    "clock_timestamp()",
+                    "false",
+                    "true"
+                    }$$::text[]
+               )
+            )
+        );
 
         IF array_length(errors, 1) > 0 THEN
             RAISE EXCEPTION 'could not secure the promscale installation: %', array_to_string(errors, ', ');
