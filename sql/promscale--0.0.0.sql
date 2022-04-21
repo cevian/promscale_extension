@@ -600,7 +600,13 @@ BEGIN
         )
         into errors
         from with_owner
-        where owner != obj_owner_oid;
+        where (
+            --either the owner is the object owner
+            (owner = obj_owner_oid)
+            OR
+            --or prom_admin (these are for metric and series tables)
+            (owner = (SELECT oid FROM pg_roles WHERE rolname = 'prom_admin') AND classid IN ('pg_class'::regclass, 'pg_type'::regclass))
+        ) is not true;
 
         IF array_length(errors, 1) > 0 THEN
             RAISE EXCEPTION 'could not secure the promscale installation: %', array_to_string(errors, ', ');
@@ -645,8 +651,9 @@ BEGIN
         )
         into errors
         FROM constr
-        WHERE NOT( pg_get_constraintdef(oid) = ANY(
-        $${
+        WHERE ( --if the part inside the parenthesis returns true, the constraint is safe
+        pg_get_constraintdef(oid) = ANY(
+            $${
             "CHECK ((VALUE <> ''::text))",
             "CHECK ((jsonb_typeof(VALUE) = 'object'::text))",
             "CHECK ((VALUE <> '00000000-0000-0000-0000-000000000000'::uuid))",
@@ -663,14 +670,21 @@ BEGIN
             "CHECK ((start_time <= end_time))",
             "CHECK ((trace_state <> ''::text))",
             "CHECK ((url <> ''::text))"
-        }$$::text[]
-        ));
+            }$$::text[]
+        )
+        OR
+        pg_get_constraintdef(oid) similar to 'CHECK \(\(metric_id = \d*\)\)'
+        OR
+        pg_get_constraintdef(oid) similar to 'CHECK \(\(\(labels\[1\] = \d*\) AND \(labels\[1\] IS NOT NULL\)\)\)'
+        OR
+        pg_get_constraintdef(oid) similar to $$CHECK \(\(\("time" >= '(\d|\-| |\.|\:)*'::timestamp with time zone\) AND \("time" < '(\d|\-| |\.|\:)*'::timestamp with time zone\)\)\)$$
+        ) IS NOT TRUE; --use is not true for correct NULL handling
 
         IF array_length(errors, 1) > 0 THEN
             RAISE EXCEPTION 'could not secure the promscale installation: %', array_to_string(errors, ', ');
         END IF;
 
-        --triggers: make sure associated functions owned by us or a superuser (superuser own fk triggers)
+        --triggers: make sure associated functions owned by us or a superuser (superuser own fk triggers, cont agg triggers)
         with recursive cte AS (
             select
                     0 as level,
@@ -761,19 +775,25 @@ BEGIN
         )
         INTO errors
         FROM rewrite
-        WHERE NOT ( --things inside the NOT are safe
+        WHERE ( --if the part inside the parenthesis returns true, the rewrite is safe
             --views owned by us are safe
             (relowner = obj_owner_oid and relkind = 'v' and rulename='_RETURN')
             OR
+            --views owned by prom_admin are safe (these are metric and series views)
+            (relowner = (SELECT oid FROM pg_roles WHERE rolname = 'prom_admin') and relkind = 'v' and rulename='_RETURN')
+            OR
+            --views using our functions are safe (probably in user-defined views)
+            (refclassid = 'pg_proc'::regclass)
+            OR
             --column references are safe (probably in user-defined views)
-            (refclassid = 'pg_class'::regclass AND refobjsubid > 0)
-        );
+            (refclassid = 'pg_class'::regclass AND refobjsubid != 0)
+        ) IS NOT TRUE; --use "is not true" for correct NULL handling
 
         IF array_length(errors, 1) > 0 THEN
             RAISE EXCEPTION 'could not secure the promscale installation: %', array_to_string(errors, ', ');
         END IF;
 
-        --all column defaults refer to sequences owned by us
+        --all column defaults refer to sequences owned by us or known values
         with recursive cte AS (
             select
                     0 as level,
@@ -820,7 +840,7 @@ BEGIN
         )
         INTO errors
         FROM attrdef
-        WHERE NOT ( --objects inside the not are known safe
+        WHERE ( --if the part in the parenthesis returns true it means the default is safe
             --sequeneces owned by the owner are safe
             (seq_owner is not null and seq_owner = obj_owner_oid)
             OR
@@ -836,7 +856,7 @@ BEGIN
                     }$$::text[]
                )
             )
-        );
+        ) IS NOT TRUE; --use "is not true" for correct NULL handling
 
         IF array_length(errors, 1) > 0 THEN
             RAISE EXCEPTION 'could not secure the promscale installation: %', array_to_string(errors, ', ');
